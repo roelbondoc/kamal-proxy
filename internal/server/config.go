@@ -8,14 +8,29 @@ import (
 )
 
 const (
-	DefaultHttpPort  = 80
-	DefaultHttpsPort = 443
+	DefaultHttpPort        = 80
+	DefaultHttpsPort       = 443
+	DefaultUdpPort         = 8080
+	DefaultSessionTimeout  = 60 // seconds
+	DefaultCleanupInterval = 30 // seconds
+	
+	// WebRTC Port Range Defaults
+	DefaultRTPPortStart    = 10000
+	DefaultRTPPortEnd      = 20000
+	DefaultRTCPPortStart   = 20001
+	DefaultRTCPPortEnd     = 30000
+	DefaultPortAllocationTTL = 300 // seconds
+	
+	// Zero-downtime deployment defaults - use service.go constants for drain/health check
+	DefaultForceKillTimeout    = 120 // seconds
+	DefaultSessionCheckInterval = 5  // seconds
 )
 
 type Config struct {
 	Bind        string
 	HttpPort    int
 	HttpsPort   int
+	UdpPort     int
 	MetricsPort int
 
 	AlternateConfigDir string
@@ -31,6 +46,14 @@ func (c Config) StatePath() string {
 
 func (c Config) CertificatePath() string {
 	return path.Join(c.dataDirectory(), "certs")
+}
+
+func (c Config) UdpStatePath() string {
+	return path.Join(c.dataDirectory(), "kamal-proxy-udp.state")
+}
+
+func (c Config) SessionStorePath() string {
+	return path.Join(c.dataDirectory(), "udp-sessions")
 }
 
 // Private

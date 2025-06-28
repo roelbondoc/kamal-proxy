@@ -12,8 +12,9 @@ import (
 var registered sync.Once
 
 type CommandHandler struct {
-	rpcListener net.Listener
-	router      *Router
+	rpcListener   net.Listener
+	router        *Router
+	udpServiceMap *UDPServiceMap
 }
 
 type DeployArgs struct {
@@ -46,6 +47,46 @@ type RemoveArgs struct {
 	Service string
 }
 
+type UDPDeployArgs struct {
+	Service        string
+	TargetURLs     []string
+	Port           int
+	DeployTimeout  time.Duration
+	SessionConfig  *SessionConfig
+}
+
+type WebRTCDeployArgs struct {
+	Service        string
+	TargetURLs     []string
+	PortRanges     []PortRange
+	RTCPPolicy     string
+	DeployTimeout  time.Duration
+	SessionConfig  *SessionConfig
+}
+
+type UDPZeroDowntimeDeployArgs struct {
+	Service          string
+	TargetURLs       []string
+	Port             int
+	DeployTimeout    time.Duration
+	DrainTimeout     time.Duration
+	ForceKillTimeout time.Duration
+	DrainStrategy    string
+	SessionConfig    *SessionConfig
+}
+
+type WebRTCZeroDowntimeDeployArgs struct {
+	Service          string
+	TargetURLs       []string
+	PortRanges       []PortRange
+	RTCPPolicy       string
+	DeployTimeout    time.Duration
+	DrainTimeout     time.Duration
+	ForceKillTimeout time.Duration
+	DrainStrategy    string
+	SessionConfig    *SessionConfig
+}
+
 type RolloutDeployArgs struct {
 	Service       string
 	TargetURLs    []string
@@ -68,9 +109,10 @@ type ListResponse struct {
 	Targets ServiceDescriptionMap `json:"services"`
 }
 
-func NewCommandHandler(router *Router) *CommandHandler {
+func NewCommandHandler(router *Router, udpServiceMap *UDPServiceMap) *CommandHandler {
 	return &CommandHandler{
-		router: router,
+		router:        router,
+		udpServiceMap: udpServiceMap,
 	}
 }
 
@@ -150,4 +192,32 @@ func (h *CommandHandler) RolloutSet(args RolloutSetArgs, reply *bool) error {
 
 func (h *CommandHandler) RolloutStop(args RolloutStopArgs, reply *bool) error {
 	return h.router.StopRollout(args.Service)
+}
+
+func (h *CommandHandler) DeployUDP(args UDPDeployArgs, reply *bool) error {
+	return h.udpServiceMap.DeployService(args.Service, args.Port, args.TargetURLs, args.SessionConfig)
+}
+
+func (h *CommandHandler) DeployWebRTC(args WebRTCDeployArgs, reply *bool) error {
+	return h.udpServiceMap.DeployWebRTCService(args.Service, args.TargetURLs, args.PortRanges, args.SessionConfig)
+}
+
+func (h *CommandHandler) DeployUDPZeroDowntime(args UDPZeroDowntimeDeployArgs, reply *bool) error {
+	drainPolicy := SessionDrainPolicy{
+		Strategy:     args.DrainStrategy,
+		GracePeriod:  args.DrainTimeout,
+		MaxWaitTime:  args.ForceKillTimeout,
+		NotifyClients: false, // UDP doesn't support WebRTC notifications
+	}
+	return h.udpServiceMap.DeployServiceZeroDowntime(args.Service, args.Port, args.TargetURLs, args.SessionConfig, drainPolicy)
+}
+
+func (h *CommandHandler) DeployWebRTCZeroDowntime(args WebRTCZeroDowntimeDeployArgs, reply *bool) error {
+	drainPolicy := SessionDrainPolicy{
+		Strategy:     args.DrainStrategy,
+		GracePeriod:  args.DrainTimeout,
+		MaxWaitTime:  args.ForceKillTimeout,
+		NotifyClients: true, // WebRTC supports termination notifications
+	}
+	return h.udpServiceMap.DeployWebRTCServiceZeroDowntime(args.Service, args.TargetURLs, args.PortRanges, args.SessionConfig, drainPolicy)
 }

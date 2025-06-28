@@ -32,14 +32,25 @@ type Server struct {
 	httpServer      *http.Server
 	httpsServer     *http.Server
 	metricsServer   *http.Server
+	udpServer       *UDPServer
+	udpServiceMap   *UDPServiceMap
 	commandHandler  *CommandHandler
 }
 
 func NewServer(config *Config, router *Router) *Server {
-	return &Server{
+	server := &Server{
 		config: config,
 		router: router,
 	}
+	
+	// Initialize UDP server
+	udpServiceMap := NewUDPServiceMap(config)
+	server.udpServer = NewUDPServer(config, udpServiceMap)
+	
+	// Store UDP service map for command handler
+	server.udpServiceMap = udpServiceMap
+	
+	return server
 }
 
 func (s *Server) Start() error {
@@ -53,12 +64,17 @@ func (s *Server) Start() error {
 		return err
 	}
 
+	err = s.startUDPServer()
+	if err != nil {
+		return err
+	}
+
 	err = s.startCommandHandler()
 	if err != nil {
 		return err
 	}
 
-	slog.Info("Server started", "http", s.HttpPort(), "https", s.HttpsPort())
+	slog.Info("Server started", "http", s.HttpPort(), "https", s.HttpsPort(), "udp", s.UdpPort())
 	return nil
 }
 
@@ -71,6 +87,7 @@ func (s *Server) Stop() {
 		func() { s.stopHTTPServer(ctx, s.httpServer) },
 		func() { s.stopHTTPServer(ctx, s.httpsServer) },
 		func() { s.stopHTTPServer(ctx, s.metricsServer) },
+		func() { s.stopUDPServer(ctx) },
 	)
 
 	slog.Info("Server stopped")
@@ -82,6 +99,10 @@ func (s *Server) HttpPort() int {
 
 func (s *Server) HttpsPort() int {
 	return s.httpsListener.Addr().(*net.TCPAddr).Port
+}
+
+func (s *Server) UdpPort() int {
+	return s.udpServer.Port()
 }
 
 // Private
@@ -149,7 +170,7 @@ func (s *Server) startMetricsServer() error {
 }
 
 func (s *Server) startCommandHandler() error {
-	s.commandHandler = NewCommandHandler(s.router)
+	s.commandHandler = NewCommandHandler(s.router, s.udpServiceMap)
 	_ = os.Remove(s.config.SocketPath())
 
 	return s.commandHandler.Start(s.config.SocketPath())
@@ -166,6 +187,19 @@ func (s *Server) buildHandler() http.Handler {
 	handler = WithRequestStartMiddleware(handler)
 
 	return handler
+}
+
+func (s *Server) startUDPServer() error {
+	return s.udpServer.Start()
+}
+
+func (s *Server) stopUDPServer(ctx context.Context) {
+	if s.udpServer != nil {
+		err := s.udpServer.Stop(ctx)
+		if err != nil {
+			slog.Error("Error while attempting to stop UDP server", "error", err)
+		}
+	}
 }
 
 func (s *Server) stopHTTPServer(ctx context.Context, server *http.Server) {
